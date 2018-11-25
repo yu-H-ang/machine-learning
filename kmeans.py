@@ -1,76 +1,157 @@
-import numpy as np
-import os
-import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
-def compute_euclidean_distance(point, centroid):
-    return np.sqrt(np.sum((point - centroid)**2))
-
-def assign_label_cluster(distance, data_point, centroids):
-    index_of_minimum = min(distance, key=distance.get)
-    return [index_of_minimum, data_point, centroids[index_of_minimum]]
-
-def compute_new_centroids(cluster_label, centroids):
-    return np.array(cluster_label + centroids)/2
-
-
-
-def print_label_data(result):
-    print("Result of k-Means Clustering: \n")
-    for data in result[0]:
-        print("data point: {}".format(data[1]))
-        print("cluster number: {} \n".format(data[0]))
-    print("Last centroids position: \n {}".format(result[1]))
-
-def create_centroids(lo, hi, k):
+def kmeans(df, nk, niter = 100, tol = 1e-6):
+    
+    # size of data
+    n, d = df.shape[0], df.shape[1]
+    
+    # initialize randomly
+    """
+    lo = [min(df.iloc[:,i]) for i in xrange(d)]
+    hi = [max(df.iloc[:,i]) for i in xrange(d)]
     centroids = []
-    for _ in xrange(k):
+    for _ in xrange(nk):
         centroids.append([])
         for i in xrange(len(lo)):
             num = (hi[i] - lo[i]) * np.random.random() + lo[i]
             centroids[-1].append(num)
-    return np.array(centroids)
-
-if __name__ == "__main__":
-    #filename = os.path.dirname(__file__) + "./data.csv"
+    centroids = np.array(centroids)
+    """
     
-    df = pd.read_csv("./iris.csv")
-    n, d = df.shape[0], df.shape[1] - 1
-
-
-    #data_points = np.genfromtxt(filename, delimiter=",")
+    # k-means++
+    p = np.zeros(n)
+    index = [np.random.choice(n)]
+    centroids = [df.iloc[index[-1]].tolist()]
+    for _ in xrange(nk - 1):
+        for i in xrange(n):
+            min_dis, label = float("Inf"), -1
+            for j in range(len(index)):
+                dis = np.linalg.norm(centroids[j] - df.iloc[i])
+                if dis < min_dis:
+                    min_dis, label = dis, j
+            p[i] = min_dis * min_dis if not label in index else 0.0
+        p = p / sum(p)
+        index.append(np.random.choice(n, 1, p=p)[0])
+        centroids.append(df.iloc[index[-1]].tolist())
+    centroids = np.array(centroids)
     
+    # some needed arrays
+    err = []
     
-    niter = 30
-    nk = 3
-    
-    centroids = create_centroids([min(df.iloc[:,i]) for i in xrange(d)], [max(df.iloc[:,i]) for i in xrange(d)], nk)
-    
+    # main loop
     for iteration in xrange(niter):
-        nxt, nxt_count = [[0] * d for _ in xrange(nk)], [0] * nk
         
+        groups = [[] for _ in xrange(nk)]
+        nxt = np.array([[0.0] * d for _ in xrange(nk)])
+        nxt_count = [0.0] * nk
+        error = 0.0
+        
+        # for each data
         for i in xrange(n):
             min_dis, label = float("Inf"), -1
             for j in range(nk):
-                dis = np.linalg.norm(centroids[j] - df.iloc[i].tolist()[:-1])
+                dis = np.linalg.norm(centroids[j] - df.iloc[i].tolist())
                 if dis < min_dis:
                     min_dis, label = dis, j
+            groups[label].append(i)
+            error += min_dis
             
-            for k in xrange(d):
-                nxt[label][k] = (nxt[label][k] * nxt_count[label] + df.iloc[i][k]) / (nxt_count[label] + 1.0)
+            # calculate new centroids
+            nxt[label] = (nxt[label] * nxt_count[label] + df.iloc[i].tolist()) / (nxt_count[label] + 1.0)
             nxt_count[label] += 1
-
+        
+        # update centroids, error
         centroids = np.array(nxt)
-        print([list(x) for x in centroids])
-            #if iteration == (total_iteration - 1):
-            #    cluster_label.append(label)
+        error /= n
+        if err and abs(error - err[-1]) < tol:
+            break
+        err.append(error)
+        
+        # print error
+        if (iteration + 1) % 1 == 0:
+            print("{}: {}".format(iteration + 1, error))
     
-    plt.plot(df.iloc[:, 1], df.iloc[:, 2], ".")
-    plt.plot(centroids[0][1], centroids[0][2], "*")
-    plt.plot(centroids[1][1], centroids[1][2], "*")
-    plt.plot(centroids[2][1], centroids[2][2], "*")
+    return centroids, groups, err
+
+if __name__ == "__main__":
+    
+    # read data, initialize parameters
+    df = pd.read_csv("./iris.csv")
+    classes = sorted(list(set(df["class"])))
+    cid = {c: i for i, c in enumerate(classes)}
+    
+    # ground truth
+    k = 3
+    real_groups = [[] for _ in xrange(k)]
+    for i in xrange(len(df)):
+        c = df.iloc[i]["class"]
+        real_groups[cid[c]].append(i)
+    
+    # k = 3, show compare clustering results with actual category
+    centroids, groups, err = kmeans(df.iloc[:, :-1], 3)
+    
+    plt.figure()
+    plt.subplot(231)
+    plt.plot(df.iloc[groups[0], 0], df.iloc[groups[0], 1], "r.")
+    plt.plot(df.iloc[groups[1], 0], df.iloc[groups[1], 1], "b.")
+    plt.plot(df.iloc[groups[2], 0], df.iloc[groups[2], 1], "g.")
+    plt.subplot(232)
+    plt.plot(df.iloc[groups[0], 0], df.iloc[groups[0], 2], "r.")
+    plt.plot(df.iloc[groups[1], 0], df.iloc[groups[1], 2], "b.")
+    plt.plot(df.iloc[groups[2], 0], df.iloc[groups[2], 2], "g.")
+    plt.subplot(233)
+    plt.plot(df.iloc[groups[0], 0], df.iloc[groups[0], 3], "r.")
+    plt.plot(df.iloc[groups[1], 0], df.iloc[groups[1], 3], "b.")
+    plt.plot(df.iloc[groups[2], 0], df.iloc[groups[2], 3], "g.")
+    plt.subplot(234)
+    plt.plot(df.iloc[groups[0], 1], df.iloc[groups[0], 2], "r.")
+    plt.plot(df.iloc[groups[1], 1], df.iloc[groups[1], 2], "b.")
+    plt.plot(df.iloc[groups[2], 1], df.iloc[groups[2], 2], "g.")
+    plt.subplot(235)
+    plt.plot(df.iloc[groups[0], 1], df.iloc[groups[0], 3], "r.")
+    plt.plot(df.iloc[groups[1], 1], df.iloc[groups[1], 3], "b.")
+    plt.plot(df.iloc[groups[2], 1], df.iloc[groups[2], 3], "g.")
+    plt.subplot(236)
+    plt.plot(df.iloc[groups[0], 2], df.iloc[groups[0], 3], "r.")
+    plt.plot(df.iloc[groups[1], 2], df.iloc[groups[1], 3], "b.")
+    plt.plot(df.iloc[groups[2], 2], df.iloc[groups[2], 3], "g.")
     plt.show()
     
-    #print_label_data([cluster_label, new_centroids])
-    print()
+    plt.figure()
+    plt.subplot(231)
+    plt.plot(df.iloc[real_groups[0], 0], df.iloc[real_groups[0], 1], "r.")
+    plt.plot(df.iloc[real_groups[1], 0], df.iloc[real_groups[1], 1], "b.")
+    plt.plot(df.iloc[real_groups[2], 0], df.iloc[real_groups[2], 1], "g.")
+    plt.subplot(232)
+    plt.plot(df.iloc[real_groups[0], 0], df.iloc[real_groups[0], 2], "r.")
+    plt.plot(df.iloc[real_groups[1], 0], df.iloc[real_groups[1], 2], "b.")
+    plt.plot(df.iloc[real_groups[2], 0], df.iloc[real_groups[2], 2], "g.")
+    plt.subplot(233)
+    plt.plot(df.iloc[real_groups[0], 0], df.iloc[real_groups[0], 3], "r.")
+    plt.plot(df.iloc[real_groups[1], 0], df.iloc[real_groups[1], 3], "b.")
+    plt.plot(df.iloc[real_groups[2], 0], df.iloc[real_groups[2], 3], "g.")
+    plt.subplot(234)
+    plt.plot(df.iloc[real_groups[0], 1], df.iloc[real_groups[0], 2], "r.")
+    plt.plot(df.iloc[real_groups[1], 1], df.iloc[real_groups[1], 2], "b.")
+    plt.plot(df.iloc[real_groups[2], 1], df.iloc[real_groups[2], 2], "g.")
+    plt.subplot(235)
+    plt.plot(df.iloc[real_groups[0], 1], df.iloc[real_groups[0], 3], "r.")
+    plt.plot(df.iloc[real_groups[1], 1], df.iloc[real_groups[1], 3], "b.")
+    plt.plot(df.iloc[real_groups[2], 1], df.iloc[real_groups[2], 3], "g.")
+    plt.subplot(236)
+    plt.plot(df.iloc[real_groups[0], 2], df.iloc[real_groups[0], 3], "r.")
+    plt.plot(df.iloc[real_groups[1], 2], df.iloc[real_groups[1], 3], "b.")
+    plt.plot(df.iloc[real_groups[2], 2], df.iloc[real_groups[2], 3], "g.")
+    plt.show()
+    
+    # decide proper k, elbow-point method
+    errors = []
+    for k in xrange(1, 9):
+        centroids, groups, err = kmeans(df.iloc[:, :-1], k)
+        errors.append(err[-1])
+    plt.figure()
+    plt.plot(xrange(1, 9), errors, ".-")
+    plt.show()
     
