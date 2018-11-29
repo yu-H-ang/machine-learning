@@ -30,6 +30,10 @@ def create_node(df):
             tmp = df.loc[df.iloc[:, col] == val]
             ig -= float(cnt)/len(df) * stats.entropy(collections.Counter(tmp.iloc[:, -1]).values(), base=2)
             iv -= float(cnt)/len(df) * np.log2(float(cnt)/len(df))
+        # id3
+        #gain_ratios.append(ig)
+        
+        # c4.5
         gain_ratios.append(ig/iv)
     
     split = np.argmax(gain_ratios)
@@ -44,7 +48,11 @@ def create_node(df):
     
     return node
 
-
+def empty(size):
+    s = ""
+    for x in range(size):
+        s += "   "
+    return s
 
 def print_tree(node, level):
     if node.answer != "":
